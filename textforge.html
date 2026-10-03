@@ -1,0 +1,51 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<title>TextForge — Terminal Text Processing Toolkit</title>
+<style>
+body{font-family:-apple-system,sans-serif;max-width:800px;margin:0 auto;padding:40px 20px;line-height:1.7;color:#222}
+h1{color:#2c3e50}h2{color:#2c3e50;border-bottom:2px solid #2c3e50;padding-bottom:6px;margin-top:40px}
+code{background:#f4f4f4;padding:2px 6px;border-radius:3px}
+pre{background:#1e1e1e;color:#f0f0f0;padding:16px;border-radius:6px;overflow-x: auto}
+pre code{background:none}
+</style>
+</head>
+<body>
+
+<h1>TextForge <code>v1.3.0</code></h1>
+<p>A terminal-first toolkit for batch text processing: fast find-and-replace, encoding conversion, and log parsing with a readable DSL.</p>
+
+<h2>Quick Start</h2>
+<pre><code>pip install textforge
+
+# Replace across a whole project, with preview
+tf replace "TODO\(.*?\)" "DONE" --glob "**/*.py" --preview
+
+# Fix encoding of legacy files
+tf reencode src/ --from cp1251 --to utf-8
+
+# Parse logs into structured output
+tf parse access.log --format nginx --out json</code></pre>
+
+<h2>The Replace DSL</h2>
+<p>TextForge's DSL supports capture groups, conditionals, and multi-line patterns:</p>
+<pre><code>tf replace --script rules.tf
+# rules.tf:
+pattern  "user_(\d+)"
+replace  "uid={1}"
+when     file.endswith(".csv")
+</code></pre>
+
+<h2>Benchmarks</h2>
+<table>
+<tr><th>Task</th><th>TextForge</th><th>sed</th><th>ripgrep+sh</th></tr>
+<tr><td>Replace in 10k files</td><td>1.8s</td><td>6.4s</td><td>4.1s</td></tr>
+<tr><td>Re-encode 1GB corpus</td><td>11s</td><td>—</td><td>—</td></tr>
+</table>
+
+<h2>Why not sed/awk?</h2>
+<p>Portability across platforms, dry-run previews, structured output, and readable syntax for complex rules. TextForge complements, not replaces, the Unix staples.</p>
+
+</body>
+</html>
